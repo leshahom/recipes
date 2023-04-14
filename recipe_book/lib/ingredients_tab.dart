@@ -13,15 +13,23 @@ class IngredientObject {
   double price;
   double pricePerUnit;
 
-  static List<String> get labels => ["Name", "Price Per Unit", "Unit"];
+  double unitsInStock;
 
-  List<String> get values => [name, pricePerUnit.toStringAsFixed(2), unit.name];
+  static List<String> get labels => ["Name", "Price Per Unit", "Unit", "Stock"];
+
+  List<String> get values => [
+        name,
+        pricePerUnit.toStringAsFixed(2),
+        unit.name,
+        unitsInStock.toStringAsFixed(2)
+      ];
 
   IngredientObject(
       {required this.name,
       required this.unit,
       required this.quantity,
-      required this.price})
+      required this.price,
+      this.unitsInStock = 0})
       : pricePerUnit = (price == 0 || quantity == 0) ? 0 : price / quantity;
 
   bool sameAs(IngredientObject other) {
@@ -31,8 +39,13 @@ class IngredientObject {
         price == other.price;
   }
 
-  Map<String, dynamic> toJson() =>
-      {"name": name, "unit": unit.name, "quantity": quantity, "price": price};
+  Map<String, dynamic> toJson() => {
+        "name": name,
+        "unit": unit.name,
+        "quantity": quantity,
+        "price": price,
+        "stock": unitsInStock
+      };
 
   static IngredientObject? fromJson(Map<String, dynamic> json) {
     var n = json["name"];
@@ -40,11 +53,16 @@ class IngredientObject {
     if (u < 0) u = null;
     var q = json["quantity"];
     var p = json["price"];
+    var s = json["stock"];
     if ([n, u, q, p].contains(null)) {
       return null;
     }
     return IngredientObject(
-        name: n, price: p!, quantity: q!, unit: Units.values[u!]);
+        name: n,
+        price: p!,
+        quantity: q!,
+        unit: Units.values[u!],
+        unitsInStock: s);
   }
 }
 
@@ -168,6 +186,7 @@ class IngredientsTab extends StatelessWidget {
     Units? u = ingObj?.unit;
     double? q = ingObj?.quantity;
     double? p = ingObj?.price;
+    double s = ingObj?.unitsInStock ?? 0;
     String? n = ingObj?.name;
     return Dialog(
       child: Container(
@@ -190,7 +209,11 @@ class IngredientsTab extends StatelessWidget {
                     if (formKey.currentState?.validate() == true) {
                       formKey.currentState?.save();
                       Navigator.of(context).pop(IngredientObject(
-                          name: n!, unit: u!, quantity: q!, price: p!));
+                          name: n!,
+                          unit: u!,
+                          quantity: q!,
+                          price: p!,
+                          unitsInStock: s));
                     }
                   },
                   child: const Text("Save"),
@@ -222,7 +245,7 @@ class IngredientsTab extends StatelessWidget {
                             if (value == null) {
                               return "Price is required";
                             }
-                            double? newP = double.tryParse(value!);
+                            double? newP = double.tryParse(value);
                             if (newP == null || newP < 0) {
                               return "Has to be real, positive number";
                             }
@@ -242,7 +265,7 @@ class IngredientsTab extends StatelessWidget {
                       if (value == null) {
                         return "Quantity is required";
                       }
-                      double? newQ = double.tryParse(value!);
+                      double? newQ = double.tryParse(value);
                       if (newQ == null || newQ < 0) {
                         return "Has to be real, positive number";
                       }
@@ -268,6 +291,19 @@ class IngredientsTab extends StatelessWidget {
                     onChanged: (value) {
                       u = value;
                     },
+                  ),
+                  TextFormField(
+                    validator: (value) {
+                      double newQ = double.parse(value ?? "0");
+                      if (newQ < 0) {
+                        return "Has to be real, positive number";
+                      }
+                    },
+                    onSaved: (value) {
+                      s = double.parse(value ?? "0");
+                    },
+                    decoration: const InputDecoration(hintText: "Stock"),
+                    initialValue: s.toString(),
                   ),
                 ],
               ),
