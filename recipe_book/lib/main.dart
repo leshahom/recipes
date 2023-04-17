@@ -7,6 +7,7 @@ void main() {
   RecipesTab r = RecipesTab();
   i.loadFromFile().then(
     (value) {
+      i.ingredientsList.sortIngredients(0, true);
       runApp(MyApp(
         ingredients: i,
         recipes: r,
@@ -89,6 +90,7 @@ class _MyHomePageState extends State<MyHomePage>
             } else {
               showDialog<IngredientObject>(
                 context: context,
+                barrierDismissible: false,
                 builder: (context) {
                   return widget.ingredients.editIngredientDialog(context, null);
                 },

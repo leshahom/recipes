@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import "dart:io";
@@ -13,30 +14,42 @@ class IngredientObject {
   double price;
   double pricePerUnit;
 
-  double unitsInStock;
+  double? unitsInStock;
+  String? notes;
 
-  static List<String> get labels => ["Name", "Price Per Unit", "Unit", "Stock"];
+  static List<String> get labels =>
+      ["Name", "Price Per Unit", "Unit", "Stock", "Notes"];
 
-  List<String> get values => [
+  List<String> get stringValues => [
         name,
         pricePerUnit.toStringAsFixed(2),
         unit.name,
-        unitsInStock.toStringAsFixed(2)
+        unitsInStock!.toStringAsFixed(2),
+        notes!
       ];
+
+  List<dynamic> get values =>
+      [name, pricePerUnit, unit.name, unitsInStock, notes];
 
   IngredientObject(
       {required this.name,
       required this.unit,
       required this.quantity,
       required this.price,
-      this.unitsInStock = 0})
-      : pricePerUnit = (price == 0 || quantity == 0) ? 0 : price / quantity;
+      this.unitsInStock,
+      this.notes})
+      : pricePerUnit = ((price == 0 || quantity == 0) ? 0 : price / quantity) {
+    unitsInStock ??= 0;
+    notes ??= "";
+  }
 
   bool sameAs(IngredientObject other) {
     return name == other.name &&
         unit == other.unit &&
         quantity == other.quantity &&
-        price == other.price;
+        price == other.price &&
+        unitsInStock == other.unitsInStock &&
+        notes == other.notes;
   }
 
   Map<String, dynamic> toJson() => {
@@ -44,7 +57,8 @@ class IngredientObject {
         "unit": unit.name,
         "quantity": quantity,
         "price": price,
-        "stock": unitsInStock
+        "stock": unitsInStock,
+        "notes": notes
       };
 
   static IngredientObject? fromJson(Map<String, dynamic> json) {
@@ -54,6 +68,7 @@ class IngredientObject {
     var q = json["quantity"];
     var p = json["price"];
     var s = json["stock"];
+    var t = json["notes"];
     if ([n, u, q, p].contains(null)) {
       return null;
     }
@@ -62,7 +77,8 @@ class IngredientObject {
         price: p!,
         quantity: q!,
         unit: Units.values[u!],
-        unitsInStock: s);
+        unitsInStock: s,
+        notes: t);
   }
 }
 
@@ -75,6 +91,8 @@ class IngredientsList extends ChangeNotifier {
 
   bool modified = false;
   bool saving = false;
+  int sortIndex = 0;
+  bool sortAsc = true;
 
   IngredientObject operator [](int i) => ingList[i];
 
@@ -83,6 +101,19 @@ class IngredientsList extends ChangeNotifier {
       ingList[i] = value;
       notifyListeners();
     }
+  }
+
+  void sortIngredients(int idx, bool asc) {
+    sortIndex = idx;
+    sortAsc = asc;
+    ingList.sort(
+      (a, b) {
+        return (asc ? a : b)
+            .stringValues[idx]
+            .compareTo((!asc ? a : b).stringValues[idx]);
+      },
+    );
+    notifyListeners();
   }
 
   void add(IngredientObject newIng, {bool isLoadedValue = false}) {
@@ -137,7 +168,7 @@ class IngredientsTab extends StatelessWidget {
       "${Directory.current.path}/$savingFolderName/$ingredientsFileName.json");
 
   IngredientsTab({super.key}) {
-    Timer.periodic(const Duration(seconds: 60), (timer) {
+    Timer.periodic(const Duration(seconds: 10), (timer) {
       if (ingredientsList.modified &&
           !ingredientsList.isEmpty &&
           !ingredientsList.saving) {
@@ -169,15 +200,14 @@ class IngredientsTab extends StatelessWidget {
 
   Future saveToFile() async {
     ingredientsList.saving = true;
-    File? oldFile;
     if (await ingFile.exists()) {
-      oldFile = await ingFile.rename("${ingredientsFileName}_old.json");
+      await ingFile.copy(
+          "${"${Directory.current.path}/$savingFolderName/$ingredientsFileName"}_old.json");
     } else {
       await ingFile.create(recursive: true);
     }
 
     await ingFile.writeAsString(jsonEncode(ingredientsList.toJson()));
-    await oldFile?.delete();
     ingredientsList.modified = false;
     ingredientsList.saving = false;
   }
@@ -186,132 +216,245 @@ class IngredientsTab extends StatelessWidget {
     Units? u = ingObj?.unit;
     double? q = ingObj?.quantity;
     double? p = ingObj?.price;
-    double s = ingObj?.unitsInStock ?? 0;
+    double? s = ingObj?.unitsInStock;
     String? n = ingObj?.name;
-    return Dialog(
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        height: 400,
-        width: 150,
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text("Cancel"),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    if (formKey.currentState?.validate() == true) {
-                      formKey.currentState?.save();
-                      Navigator.of(context).pop(IngredientObject(
-                          name: n!,
-                          unit: u!,
-                          quantity: q!,
-                          price: p!,
-                          unitsInStock: s));
-                    }
-                  },
-                  child: const Text("Save"),
-                ),
-              ],
-            ),
-            Form(
-              key: formKey,
-              child: Column(
+    String? t = ingObj?.notes;
+    return LayoutBuilder(builder: (context, constraints) {
+      return Dialog(
+        child: Container(
+          padding: const EdgeInsets.all(9),
+          height: max(constraints.maxHeight * 2 / 3, 500),
+          width: max(constraints.maxWidth / 2, 400),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  TextFormField(
-                    validator: (value) {
-                      if (value == null) {
-                        return "Name is required";
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text("Cancel"),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (formKey.currentState?.validate() == true) {
+                        formKey.currentState?.save();
+                        Navigator.of(context).pop(IngredientObject(
+                            name: n!,
+                            unit: u!,
+                            quantity: q!,
+                            price: p!,
+                            unitsInStock: s,
+                            notes: t));
                       }
                     },
-                    onSaved: (value) {
-                      n = value;
-                    },
-                    initialValue: n,
-                    autofocus: true,
-                    decoration: const InputDecoration(hintText: "Name"),
+                    child: const Text("Save"),
                   ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          validator: (value) {
-                            if (value == null) {
-                              return "Price is required";
-                            }
-                            double? newP = double.tryParse(value);
-                            if (newP == null || newP < 0) {
-                              return "Has to be real, positive number";
-                            }
+                  if (ingObj != null)
+                    ElevatedButton(
+                      onPressed: () {
+                        showDialog<bool>(
+                          context: context,
+                          builder: (context) {
+                            return Dialog(
+                              child: SizedBox(
+                                height: 100,
+                                width: 100,
+                                child: Column(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    const Text("Delete?"),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceEvenly,
+                                      children: [
+                                        ElevatedButton(
+                                          onPressed: () {
+                                            Navigator.of(context).pop(true);
+                                          },
+                                          child: const Text("Yes"),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed: () {
+                                            Navigator.of(context).pop(false);
+                                          },
+                                          child: const Text("No"),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
                           },
-                          onSaved: (value) {
-                            p = double.parse(value!);
-                          },
-                          decoration: const InputDecoration(hintText: "Price"),
-                          initialValue: p?.toString(),
-                        ),
-                      ),
-                      const Text("\$"),
-                    ],
-                  ),
-                  TextFormField(
-                    validator: (value) {
-                      if (value == null) {
-                        return "Quantity is required";
-                      }
-                      double? newQ = double.tryParse(value);
-                      if (newQ == null || newQ < 0) {
-                        return "Has to be real, positive number";
-                      }
-                    },
-                    onSaved: (value) {
-                      q = double.parse(value!);
-                    },
-                    decoration: const InputDecoration(hintText: "Quantity"),
-                    initialValue: q?.toString(),
-                  ),
-                  DropdownButtonFormField<Units>(
-                    hint: const Text("Units"),
-                    value: u,
-                    items: Units.values
-                        .asNameMap()
-                        .keys
-                        .map<DropdownMenuItem<Units>>(
-                            (e) => DropdownMenuItem<Units>(
-                                  child: Text(e),
-                                  value: Units.values.byName(e),
-                                ))
-                        .toList(),
-                    onChanged: (value) {
-                      u = value;
-                    },
-                  ),
-                  TextFormField(
-                    validator: (value) {
-                      double newQ = double.parse(value ?? "0");
-                      if (newQ < 0) {
-                        return "Has to be real, positive number";
-                      }
-                    },
-                    onSaved: (value) {
-                      s = double.parse(value ?? "0");
-                    },
-                    decoration: const InputDecoration(hintText: "Stock"),
-                    initialValue: s.toString(),
-                  ),
+                        ).then((value) {
+                          if (value == true) {
+                            ingredientsList.remove(ingObj);
+                            ingredientsList.modified = true;
+                            Navigator.of(context).pop();
+                          }
+                        });
+                      },
+                      child: const Text("Delete"),
+                    ),
                 ],
               ),
-            ),
-          ],
+              Expanded(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      TextFormField(
+                        validator: (value) {
+                          if (value == null || value.isEmpty == true) {
+                            return "Name is required";
+                          }
+                          bool nameUsed = ingredientsList.ingList
+                              .where((element) =>
+                                  element.name == value && element != ingObj)
+                              .isNotEmpty;
+                          if (nameUsed) {
+                            return "Ingredient with this name already exists";
+                          }
+                        },
+                        onSaved: (value) {
+                          n = value;
+                        },
+                        initialValue: n,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          labelText: "Name",
+                          labelStyle: TextStyle(fontSize: 20),
+                          alignLabelWithHint: true,
+                          floatingLabelAlignment: FloatingLabelAlignment.center,
+                          floatingLabelBehavior: FloatingLabelBehavior.auto,
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              validator: (value) {
+                                if (value == null) {
+                                  return "Price is required";
+                                }
+                                double? newP = double.tryParse(value);
+                                if (newP == null || newP < 0) {
+                                  return "Has to be real, non negative number";
+                                }
+                              },
+                              onSaved: (value) {
+                                p = double.parse(value!);
+                              },
+                              decoration: const InputDecoration(
+                                labelText: "Price",
+                                alignLabelWithHint: true,
+                                labelStyle: TextStyle(fontSize: 20),
+                                floatingLabelAlignment:
+                                    FloatingLabelAlignment.center,
+                                floatingLabelBehavior:
+                                    FloatingLabelBehavior.auto,
+                              ),
+                              initialValue: p?.toString(),
+                            ),
+                          ),
+                          const Text("\$"),
+                        ],
+                      ),
+                      TextFormField(
+                        validator: (value) {
+                          if (value == null) {
+                            return "Quantity is required";
+                          }
+                          double? newQ = double.tryParse(value);
+                          if (newQ == null || newQ <= 0) {
+                            return "Has to be real, positive number";
+                          }
+                        },
+                        onSaved: (value) {
+                          q = double.parse(value!);
+                        },
+                        decoration: const InputDecoration(
+                          labelText: "Quantity",
+                          alignLabelWithHint: true,
+                          labelStyle: TextStyle(fontSize: 20),
+                          floatingLabelAlignment: FloatingLabelAlignment.center,
+                          floatingLabelBehavior: FloatingLabelBehavior.auto,
+                        ),
+                        initialValue: q?.toString(),
+                      ),
+                      DropdownButtonFormField<Units>(
+                        decoration: const InputDecoration(
+                          labelText: "Units",
+                          labelStyle: TextStyle(fontSize: 20),
+                          alignLabelWithHint: true,
+                          floatingLabelAlignment: FloatingLabelAlignment.center,
+                          floatingLabelBehavior: FloatingLabelBehavior.auto,
+                        ),
+                        value: u,
+                        validator: (value) {
+                          if (value == null) {
+                            return "Units required";
+                          }
+                        },
+                        items: Units.values
+                            .asNameMap()
+                            .keys
+                            .map<DropdownMenuItem<Units>>(
+                                (e) => DropdownMenuItem<Units>(
+                                      value: Units.values.byName(e),
+                                      child: Text(e),
+                                    ))
+                            .toList(),
+                        onChanged: (value) {
+                          u = value;
+                        },
+                      ),
+                      TextFormField(
+                        validator: (value) {
+                          double newQ = double.tryParse(value ?? "0") ?? 0;
+                          if (newQ < 0) {
+                            return "Has to be real, non-negative number";
+                          }
+                        },
+                        onSaved: (value) {
+                          s = double.tryParse(value ?? "");
+                        },
+                        decoration: const InputDecoration(
+                          labelText: "Stock",
+                          alignLabelWithHint: true,
+                          labelStyle: TextStyle(fontSize: 20),
+                          floatingLabelAlignment: FloatingLabelAlignment.center,
+                          floatingLabelBehavior: FloatingLabelBehavior.auto,
+                        ),
+                        initialValue: s?.toString(),
+                      ),
+                      TextFormField(
+                        maxLines: 3,
+                        onSaved: (value) {
+                          t = value;
+                        },
+                        decoration: const InputDecoration(
+                          labelText: "Notes",
+                          labelStyle: TextStyle(fontSize: 20),
+                          alignLabelWithHint: true,
+                          floatingLabelAlignment: FloatingLabelAlignment.center,
+                          floatingLabelBehavior: FloatingLabelBehavior.auto,
+                        ),
+                        initialValue: t,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
   @override
@@ -323,12 +466,20 @@ class IngredientsTab extends StatelessWidget {
               showCheckboxColumn: false,
               headingRowHeight: 40,
               dataRowHeight: 40,
+              sortAscending: ingredientsList.sortAsc,
+              sortColumnIndex: ingredientsList.sortIndex,
               headingRowColor: MaterialStatePropertyAll<Color>(
                   Theme.of(context).colorScheme.onSecondary),
               dataRowColor: MaterialStatePropertyAll<Color>(
                   Colors.white.withOpacity(0.1)),
               columns: IngredientObject.labels
-                  .map<DataColumn>((e) => DataColumn(label: Text(e)))
+                  .map<DataColumn>((e) => DataColumn(
+                        onSort: (columnIndex, ascending) {
+                          ingredientsList.sortIngredients(
+                              columnIndex, ascending);
+                        },
+                        label: Text(e),
+                      ))
                   .toList(),
               rows: ingredientsList.ingList
                   .map<DataRow>((ingredient) => DataRow(
@@ -352,7 +503,7 @@ class IngredientsTab extends StatelessWidget {
                           });
                         }
                       },
-                      cells: ingredient.values
+                      cells: ingredient.stringValues
                           .map<DataCell>((e) => DataCell(
                                 Text(e),
                               ))
